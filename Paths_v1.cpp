@@ -21,20 +21,35 @@ using namespace ClipperLib;
 #define With_material 1.75
 #define pi 3.14
 #define N 1	//首层与末层的层数
-#define n_p 1	//频率
+#define NP 4	//隔点上升
 
 using namespace std;
 typedef unsigned char boolean;
 struct Point {
 	double x, y, z, t;
-	bool b;
-}p;
+	bool b = false;
+};
 
 vector<Point>coord;  //缓存一层的轮廓线
 
 vector<Point> buffer1;
 vector<vector<Point>>buffer2;
+vector<vector<vector<Point>>>paths;
 vector<vector<vector<Point>>>P;
+
+vector<vector<Point>>model; //slice  整个模型的，分层的轮廓线坐标，一维层数，二维此层的轮廓线点坐标
+//vector<vector<Point>>model2; //slice  整个模型的，分层的轮廓线坐标，一维层数，二维此层的轮廓线点坐标
+vector<Paths>model3;//从切片（model）转换类型得到的，做偏移之后画外轮廓。
+vector<Point>shellpath;//存外壳上的点
+vector<vector<Point> >shellpaths;//存某一层外壳上的路径
+vector<vector<vector<Point> > >shell1;//存最里层轮廓上的路径      一维层数，二维每层不同的截面路径，三维路径的点坐标
+
+vector<Paths>model2;//从切片（model）转换类型得到的，做偏移之后画外轮廓。
+vector<vector<vector<Point> > >shell2;     //存某一层外壳上的路径集合  一维该层变化线数量，二维壳的层数路径，三维路径坐标
+
+
+vector<vector<vector<vector<Point>>>> shell;//存所有外壳上的路径    一维层数，二维每层不同的截面路径，三维不同截面路径壳的层数，四维壳路径点的坐标
+
 
 typedef OpenMesh::TriMesh_ArrayKernelT<>  MyMesh;//定义完整MyMesh类，用三角网格，自定的属性
 MyMesh mesh;
@@ -42,7 +57,7 @@ MyMesh mesh;
 double Bmax_x, Bmax_y, Bmax_z, Bmin_x, Bmin_y, Bmin_z, px, py, pz;//用于生成包围盒
 int X, Y, Z;//包围盒内离散点的数量
 
-const string file_1 = "qiao.STL";
+const string file_1 = "tooth.obj";
 
 // 读取文件的函数
 void readfile(string file) {//文件读取到了mesh当中
@@ -92,7 +107,7 @@ bool IntersectPlane(MyMesh::Point pt, MyMesh::Point pnorm) //pt截面上一点，pnorm
 	sd1 = sd2 = -10000;
 	int esize = mesh.n_halfedges();
 	flag = new bool[esize];
-
+	Point p;
 	suc = false;
 
 
@@ -298,8 +313,8 @@ double distance(Point a, Point b)	//两点间距离
 void Case1_paths() {
 	Point s;
 	//生成离散点，距离为路径宽度
-	s.x = 0; s.y = 0; s.z = 0; s.t = 0;
-	Z = (Bmax_z - Bmin_z) / (MAX / 2 + MIN / 2);
+	s.x = Bmin_x; s.y = Bmin_y; s.z = 0; s.t = 0;
+	Z = (Bmax_z - Bmin_z) / (MAX / 2 + MIN / 2) - 1;
 
 	for (int i = 0; i < Z; i++) {
 		if (i == 0) {//第一层
@@ -308,15 +323,15 @@ void Case1_paths() {
 				for (int m = 0; m < Y; m++) {
 					s.y += With_path;
 
-					(i + 1 + j + 1 + m + 1) % 2 != 0 ? s.z = MIN / 2 : s.z = MAX / 2;
+					(i + 1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = Bmin_z + MIN / 2 : s.z = Bmin_z + MAX / 2;
 
 					buffer1.push_back(s);
 				}
 				buffer2.push_back(buffer1);
 				buffer1.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
-			s.x = 0;
+			s.x = Bmin_x;
 			P.push_back(buffer2);
 			buffer2.clear();
 		}
@@ -326,32 +341,32 @@ void Case1_paths() {
 					s.x += With_path;
 					for (int m = 0; m < Y; m++) {
 						s.y += With_path;
-						(i + 1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN / 2 : s.z = P[i - 1][m][j].z + MAX / 2;
+						(i + 1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN / 2 : s.z = P[i - 1][m][j].z + MAX / 2;
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.y = 0;
+					s.y = Bmin_y;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.x = 0;
+				s.x = Bmin_x;
 			}
 			else {
 				for (int j = 0; j < Y; j++) {
 					s.y += With_path;
 					for (int m = 0; m < X; m++) {
 						s.x += With_path;
-						(i + 1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN / 2 : s.z = P[i - 1][m][j].z + MAX / 2;
+						(i + 1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN / 2 : s.z = P[i - 1][m][j].z + MAX / 2;
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.x = 0;
+					s.x = Bmin_x;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
 		}
 		else {//中间层
@@ -360,32 +375,32 @@ void Case1_paths() {
 					s.x += With_path;
 					for (int m = 0; m < Y; m++) {
 						s.y += With_path;
-						(i + 1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN : s.z = P[i - 1][m][j].z + MAX;
+						(i + 1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN : s.z = P[i - 1][m][j].z + MAX;
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.y = 0;
+					s.y = Bmin_y;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.x = 0;
+				s.x = Bmin_x;
 			}
 			else {
 				for (int j = 0; j < Y; j++) {
 					s.y += With_path;
 					for (int m = 0; m < X; m++) {
 						s.x += With_path;
-						(i + 1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN : s.z = P[i - 1][m][j].z + MAX;
+						(i + 1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN : s.z = P[i - 1][m][j].z + MAX;
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.x = 0;
+					s.x = Bmin_x;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
 		}
 	}
@@ -395,8 +410,8 @@ void Case1_paths() {
 //示例二路径生成
 void Case2_paths() {
 	Point s;
-	s.x = 0; s.y = 0; s.z = 0; s.t = 0;
-	Z = (Bmax_z - Bmin_z) / (MAX / 2 + MIN / 2)-1;
+	s.x = Bmin_x; s.y = Bmin_y; s.z = 0; s.t = 0;
+	Z = (Bmax_z - Bmin_z) / (MAX / 2 + MIN / 2) - 1;
 	for (int i = 0; i < Z; i++) {
 		if (i == 0) {//第一层
 			for (int j = 0; j < X; j++) {
@@ -404,18 +419,18 @@ void Case2_paths() {
 				for (int m = 0; m < Y; m++) {
 					s.y += With_path;
 					if (i == 0)
-						(1 + j + 1 + m + 1) % 2 != 0 ? s.z = MIN : s.z = MAX;
+						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = Bmin_z + MIN : s.z = Bmin_z + MAX;
 					else
-						(1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][j][m].z + MIN : s.z = P[i - 1][j][m].z + MAX;
+						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][j][m].z + MIN : s.z = P[i - 1][j][m].z + MAX;
 					buffer1.push_back(s);
 				}
 				buffer2.push_back(buffer1);
 				buffer1.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
 			P.push_back(buffer2);
 			buffer2.clear();
-			s.x = 0;
+			s.x = Bmin_x;
 		}
 		else if (i == Z - 1) {//最后一层//假如为奇数层
 			if ((i + 1) % 2 != 0) {
@@ -423,32 +438,32 @@ void Case2_paths() {
 					s.x += With_path;//假如为奇数层
 					for (int m = 0; m < Y; m++) {
 						s.y += With_path;
-						(1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MAX : s.z = P[i - 1][m][j].z + MIN;//不用考虑奇偶层，应该与第一层互补
+						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MAX : s.z = P[i - 1][m][j].z + MIN;//不用考虑奇偶层，应该与第一层互补
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.y = 0;
+					s.y = Bmin_y;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.x = 0;
+				s.x = Bmin_x;
 			}
 			else {
 				for (int j = 0; j < Y; j++) {
 					s.y += With_path;
 					for (int m = 0; m < X; m++) {
 						s.x += With_path;
-						(1 + j + 1 + m + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MAX : s.z = P[i - 1][m][j].z + MIN;//不用考虑奇偶层，应该与第一层互补
+						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MAX : s.z = P[i - 1][m][j].z + MIN;//不用考虑奇偶层，应该与第一层互补
 						buffer1.push_back(s);
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.x = 0;
+					s.x = Bmin_x;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
 		}
 		else {//中间层//假如为奇数层
@@ -462,11 +477,11 @@ void Case2_paths() {
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.y = 0;
+					s.y = Bmin_y;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.x = 0;
+				s.x = Bmin_x;
 			}
 			else {
 				for (int j = 0; j < Y; j++) {
@@ -478,11 +493,11 @@ void Case2_paths() {
 					}
 					buffer2.push_back(buffer1);
 					buffer1.clear();
-					s.x = 0;
+					s.x = Bmin_x;
 				}
 				P.push_back(buffer2);
 				buffer2.clear();
-				s.y = 0;
+				s.y = Bmin_y;
 			}
 		}
 
@@ -504,7 +519,7 @@ bool InOrOutPolygon(Point a, vector<Point> polypoint) {
 		boolean above = (y0 < slope* (x0 - polypoint[i].x) + polypoint[i].y);
 		if ((cond1 || cond2) && above) crossings++;
 	}
-	if (crossings % 2 != 0) {
+	if (crossings % 2 != 0&&crossings!=0) {
 		return true;
 	}
 	else {
@@ -514,26 +529,168 @@ bool InOrOutPolygon(Point a, vector<Point> polypoint) {
 
 //判断生成的离散点是否在模型内
 void findIntersect() {
+	Path  way;
+	Paths layer;//每层路径集合
+	IntPoint p1;
+	Point p;
 	for (int i = 0; i < P.size(); i++) {
+		printf("求交算法：%.2lf%%\r", i * 100.0 / P.size());
 		for (int j = 0; j < P[i].size(); j++) {
 			for (int m = 0; m < P[i][j].size(); m++) {
 				MyMesh::Normal vf(0, 0, 1);//截面法线
 				MyMesh::Point pt;//截面上一点
 				pt.data()[0] = 0; pt.data()[1] = 0; pt.data()[2] = P[i][j][m].z;
 				IntersectPlane(pt, vf);//生成一层轮廓线，存入coord
-				if (!InOrOutPolygon(P[i][j][m], coord)) {
-					P[i][j][m].b = false;
+
+				for (int k = 0; k < coord.size(); k++)
+				{
+					if (coord[k].x != -10000)
+					{
+						p1.X = coord[k].x * 100;
+						p1.Y = coord[k].y * 100;
+						way.push_back(p1);
+					}
+					else
+					{
+						layer.push_back(way);
+						way.clear();
+					}
 				}
-				else {
-					P[i][j][m].b = true;
-				}
+				layer.push_back(way);
+				way.clear();
 				coord.clear();
+
+				for (int k1 = 0; k1 < layer.size(); k1++)
+				{
+					for (int k = 0; k < layer[k1].size(); k++)
+					{
+						p.x = double(layer[k1][k].X) / 100;
+						p.y = double(layer[k1][k].Y) / 100;
+
+						shellpath.push_back(p);
+					}
+					shellpaths.push_back(shellpath);
+					shellpath.clear();
+				}
+				layer.clear();
+
+				for (int k = 0; k < shellpaths.size(); k++) {
+					if (InOrOutPolygon(P[i][j][m], shellpaths[k])) {
+						P[i][j][m].b = true;
+					}
+				}
+				shellpaths.clear();
+				
 			}
 		}
 		
 	}
 }
 
+void Contour() {
+	double z = Bmin_z;
+	for (int i = 0; i < Z; i++) {
+		z += (MIN + MAX) / 2;
+		MyMesh::Normal vf(0, 0, 1);//截面法向
+		MyMesh::Point pt; //截面上一点
+		pt.data()[0] = 0; pt.data()[1] = 0; pt.data()[2] = z;
+		IntersectPlane(pt, vf);//生成一层轮廓线，存入coord
+		model.push_back(coord);
+		coord.clear();
+	}
+	Path  way;
+	Paths layer;//每层路径集合
+	IntPoint p1;
+	ClipperOffset co;
+	Paths solution;
+	Point p;
+	for (int i = 0; i < model.size(); i++)//遍历model，第i层
+	{
+	
+
+		for (int j = 0; j < model[i].size(); j++)//遍历model，第i层中的第j个点
+		{
+			if (model[i][j].x != -10000)
+			{
+				p1.X = model[i][j].x * 100;
+				p1.Y = model[i][j].y * 100;
+				way.push_back(p1);
+			}
+			else
+			{
+				layer.push_back(way);
+				way.clear();
+			}
+		}
+		layer.push_back(way);
+		way.clear();
+
+		model2.push_back(layer);
+		layer.clear();
+//*********************将最内圈的点赋给shell1***********************************
+		for (int j = 0; j < model2[i].size(); j++)
+		{
+			for (int k = 0; k < model2[i][j].size(); k++)
+			{
+				p.x = double(model2[i][j][k].X) / 100;
+				p.y = double(model2[i][j][k].Y) / 100;
+
+				shellpath.push_back(p);
+			}
+			shellpaths.push_back(shellpath);
+			shellpath.clear();
+		}
+		shell1.push_back(shellpaths);
+		shellpaths.clear();
+
+
+
+		//******************************做偏移***********************************************
+		printf("%.2lf%%\r", i * 100.0 / model.size());
+		for (int j = 0; j < model2[i].size(); j++)//此时遍历的是model2，某层里的第j条path做偏移
+		{
+			double area = abs(Area(model2[i][j]) / 10000);
+			co.Clear();
+			co.AddPath(model2[i][j], jtRound, etClosedPolygon);   //设置准备偏移的路径
+			int times = 1;	//偏移次数，即外壳打印的层数
+			int sh = 80;     //偏移厚度
+
+			for (int a = 0; a < times; a++)					 //进行偏移
+			{
+
+				co.Execute(solution, sh);							//每次偏移的厚度
+
+				for (int n = 0; n < solution[0].size(); n++)
+				{
+					p.x = double(solution[0][n].X) / 100;
+					p.y = double(solution[0][n].Y) / 100;
+
+					shellpath.push_back(p);
+				}
+
+				p.x = double(solution[0][0].X) / 100;
+				p.y = double(solution[0][0].Y) / 100;
+
+				shellpath.push_back(p);
+
+				co.Clear();
+				co.AddPath(solution[0], jtRound, etClosedPolygon);  //准备下一次偏移
+				solution.clear();
+
+				shellpaths.push_back(shellpath);
+				shellpath.clear();
+			}
+
+			shell2.push_back(shellpaths);
+			shellpaths.clear();
+
+		}
+		//solution.clear();
+		shell.push_back(shell2);
+		shell2.clear();
+	}
+
+}
 
 void Optimization() {
 	Point s;
@@ -542,17 +699,18 @@ void Optimization() {
 	for (int i = 0; i < P.size(); i++) {//中间插入过渡插值
 		for (int j = 0; j < P[i].size(); j++) {
 			for (int m = 1; m < P[i][j].size(); m++) {
-
-				k1 = (P[i][j][m].z - P[i][j][m - 1].z) / With_path;
-				//k2 = (P[i][j][m].t - P[i][j][m - 1].t) / With_path;
-				for (int c = 1; c < With_path * 10; c++) {//插值间隔为0.1mm
-					P[i][j][m - 1].x == P[i][j][m].x ? s.y = P[i][j][m - 1].y + 0.1 : s.x = P[i][j][m - 1].x + 0.1;
-					P[i][j][m - 1].x == P[i][j][m].x ? s.x = P[i][j][m - 1].x : s.y = P[i][j][m - 1].y;
-					s.z = P[i][j][m - 1].z + 0.1 * k1;
-					//s.t = P[i][j][m - 1].t + 0.1 * k2;
-					(P[i][j][m - 1].b == true && P[i][j][m].b == true) ? s.b = true : s.b = false;
-					P[i][j].insert(P[i][j].begin() + m, s);
-					m += 1;
+				if (P[i][j][m].z != P[i][j][m - 1].z) {
+					k1 = (P[i][j][m].z - P[i][j][m - 1].z) / With_path;
+					//k2 = (P[i][j][m].t - P[i][j][m - 1].t) / With_path;
+					for (int c = 1; c < With_path * 10; c++) {//插值间隔为0.1mm
+						P[i][j][m - 1].x == P[i][j][m].x ? s.y = P[i][j][m - 1].y + 0.1 : s.x = P[i][j][m - 1].x + 0.1;
+						P[i][j][m - 1].x == P[i][j][m].x ? s.x = P[i][j][m - 1].x : s.y = P[i][j][m - 1].y;
+						s.z = P[i][j][m - 1].z + 0.1 * k1;
+						//s.t = P[i][j][m - 1].t + 0.1 * k2;
+						(P[i][j][m - 1].b == true && P[i][j][m].b == true) ? s.b = true : s.b = false;
+						P[i][j].insert(P[i][j].begin() + m, s);
+						m += 1;
+					}
 				}
 
 			}
@@ -567,35 +725,53 @@ void  Case1() {
 	Optimization();
 
 	double k = (MAX / 2 - MIN / 2) / With_path;//存储斜率
+	double z = (MIN + MAX) / 2;
 	for (int i = 0; i < P.size(); i++) {
 		for (int j = 0; j < P[i].size(); j++) {
 			for (int m = 1; m < P[i][j].size(); m++) {
+
 				//首层
 				if (i == 0) {
 					P[i][j][m].t = 2 * (With_path) * (P[i][j][m].z + P[i][j][m - 1].z) / (pow(With_material, 2) * pi);
+				}
+				else if (i == 1) {//第二层
+					if (P[i][j][m].z > P[i][j][m - 1].z) {
+						if (m % (int)(With_path * 10) == 0)
+							P[i][j][m].t = 2 * (With_path) * (MAX + (MIN + 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
+						else
+							P[i][j][m].t = 2 * (With_path) * ((MIN + 2 * (m % (int)(With_path * 10) * 0.1 * k)) + (MIN + 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
+
+					}
+					else if (P[i][j][m].z < P[i][j][m - 1].z) {
+						if (m % (int)(With_path * 10) == 0)
+							P[i][j][m].t = 2 * (With_path) * (MIN + (MAX - 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
+						else
+							P[i][j][m].t = 2 * (With_path) * ((MAX - 2 * (m % (int)(With_path * 10) * 0.1 * k)) + (MAX - 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
+
+					}
+					else {
+						if (P[i][j][m].z == MIN / 2 + MAX)
+							P[i][j][m].t = 4 * (With_path)*MAX / (pow(With_material, 2) * pi);
+						else
+							P[i][j][m].t = 4 * (With_path)*MIN / (pow(With_material, 2) * pi);
+					}
 				}//末层(奇数)
-				else if (i == Z - 1&&(i+1)%2!=0) {
+				else if (i == Z - 1 && (i + 1) % 2 != 0) {
 					P[i][j][m].t = P[0][j][m].t;
 				}//末层（偶数）
 				else if (i == Z - 1 && (i + 1) % 2 == 0) {
 					P[i][j][m].t = P[1][j][m].t / 2;
 				}//中间层
 				else {
-					if (P[i][j][m].z > P[i][j][m - 1].z) {
-						if(m % (int)(With_path * 10) == 0)
-							P[i][j][m].t = 2 * (With_path) * (MAX + (MIN + 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
-						else
-							P[i][j][m].t = 2 * (With_path) * ((MIN + 2 * (m % (int)(With_path * 10) * 0.1 * k)) + (MIN + 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
-
+					if ((i + 1) % 2 != 0) {
+						P[i][j][m].t = P[0][j][m].t * 2;
 					}
 					else {
-						if (m % (int)(With_path * 10) == 0)
-							P[i][j][m].t = 2 * (With_path) * (MIN + (MAX - 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
-						else
-							P[i][j][m].t = 2 * (With_path) * ((MAX - 2 * (m % (int)(With_path * 10) * 0.1 * k)) + (MAX - 2 * ((m - 1) % (int)(With_path * 10) * 0.1 * k))) / (pow(With_material, 2) * pi);
-						
+						P[i][j][m].t = P[1][j][m].t;
 					}
+
 				}
+
 			}
 		}
 	}
@@ -612,7 +788,8 @@ void  Case2() {
 				//首层
 				if (i == 0) {
 					P[i][j][m].t = 2 * (With_path) * (P[i][j][m].z + P[i][j][m - 1].z) / (pow(With_material, 2) * pi);
-				}//末层(奇数)
+				}
+				//末层(奇数)
 				else if (i == Z - 1 && (i + 1) % 2 != 0) {
 					P[i][j][m].t = 2 * (With_path) * (MAX + MIN - P[0][j][m - 1].z + MAX + MIN - P[0][j][m].z) / (pow(With_material, 2) * pi);
 				} // 末层(偶数)
@@ -628,20 +805,63 @@ void  Case2() {
 	}
 }
 
-void GcodePrint() {
-
-	for (int i = 0; i < P.size(); i++) {//对每层中偶数条的路径翻转，为了减少跳转
+void Paths_Optimization() {
+	Point s;
+	for (int i = 0; i < P.size(); i++) {
 		for (int j = 0; j < P[i].size(); j++) {
-			if ((j + 1) % 2 == 0) {
-				reverse(P[i][j].begin(), P[i][j].end());
+			for (int m = 0; m < P[i][j].size(); m++) {
+				if (P[i][j][m].b == true) {
+					buffer1.push_back(P[i][j][m]);
+				}
+				else if (P[i][j][m].b == false && buffer1.size() != 0) {
+					buffer2.push_back(buffer1);
+					buffer1.clear();
+				}
+			}
+			if (buffer1.size() != 0) {
+				buffer2.push_back(buffer1);
+				buffer1.clear();
+			}
+		}
+		paths.push_back(buffer2);
+		buffer2.clear();
+	}
+
+	double arcs, s_begin, s_end;
+	for (int i = 0; i < paths.size(); i++) {
+		for (int j = 0; j < paths[i].size() - 1; j++) {
+			arcs = distance(paths[i][j][paths[i][j].size() - 1], paths[i][j + 1][0]);
+			for (int m = j + 1; m < paths[i].size(); m++) {
+				s_begin = distance(paths[i][j][paths[i][j].size() - 1], paths[i][m][0]);
+				s_end = distance(paths[i][j][paths[i][j].size() - 1], paths[i][m][paths[i][m].size() - 1]);
+				if (s_begin < arcs && s_begin < s_end) {
+					arcs = s_begin;
+					buffer1 = paths[i][m];
+					paths[i][m] = paths[i][j + 1];
+					paths[i][j + 1] = buffer1;
+					buffer1.clear();
+				}
+				else if (s_end < arcs && s_end < s_begin) {
+					arcs = s_end;
+					reverse(paths[i][m].begin(), paths[i][m].end());
+					buffer1 = paths[i][m];
+					paths[i][m] = paths[i][j + 1];
+					paths[i][j + 1] = buffer1;
+					buffer1.clear();
+				}
 			}
 		}
 	}
 
+}
+
+void GcodePrint() {
+
+
 	FILE* fp;
 	errno_t err;     //判断此文件流是否存在 存在返回1
 	err = fopen_s(&fp, "ls2.gcode", "a"); //若return 1 , 则将指向这个文件的文件流给
-
+	double t = (4 * ((MIN + MAX) / 2) * With_path) / (pow(With_material, 2) * pi);
 	double E = 0;
 	double r;//回抽
 	int L = 50;//偏移量
@@ -667,28 +887,51 @@ void GcodePrint() {
 	fprintf(fp, "G92 E0\n");
 	fprintf(fp, "G1 F2700 E-5\n");
 	fprintf(fp, "M107\n");
-	int o;
-	for (int i = 0; i < P.size(); i++) {
-		if (i > 0) {
-			fprintf(fp, "G0 F3000 X%f Y%f Z%f\n", P[i][0][0].x + L, P[i][0][0].y + L, P[i][0][0].z + 1);
-			fprintf(fp, "G0 F3000 X%f Y%f Z%f E%f\n", P[i][0][0].x + L, P[i][0][0].y + L, P[i][0][0].z, E += 1);
-		}
-		fprintf(fp, ";TYPE:FILL\n");
-		for (int j = 0; j < P[i].size(); j++) {
-			if (P[i][j][0].b==true)
-				fprintf(fp, "G0 X%f Y%f Z%f\n", P[i][j][0].x + L, P[i][j][0].y + L, P[i][j][0].z);
-			for (int m = 1; m < P[i][j].size(); m++) {
-				if (P[i][j][m - 1].b==true && P[i][j][m].b==true) {
-					fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", P[i][j][m].x + L, P[i][j][m].y + L, P[i][j][m].z, E += distance(P[i][j][m - 1], P[i][j][m]) * P[i][j][m].t);
-					o = m;
-				}
-				else if (P[i][j][m - 1].b == false && P[i][j][m].b == true) {
-					fprintf(fp, "G0 F3000 X%f Y%f Z%f\n", P[i][j][m].x + L, P[i][j][m].y + L, P[i][j][m].z);
-					fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", P[i][j][m].x + L, P[i][j][m].y + L, P[i][j][m].z, E += distance(P[i][j][m - 1], P[i][j][m]) * P[i][j][m].t);
+
+	double z = Bmin_z;
+
+	for (int i = 0; i < paths.size(); i++) {
+		fprintf(fp, ";LAYER:%d\n", i);
+		fprintf(fp, ";TYPE:OUTLINE\n");
+		fprintf(fp, "M73 P%.f\n", float((100 * i) / paths.size()));
+		z += (MIN + MAX) / 2;
+		for (int j = 0; j < shell1[i].size(); j++) {
+			fprintf(fp, "G0 X%f Y%f Z%f\n", shell1[i][j][0].x + L, shell1[i][j][0].y + L, z);
+			if (i > 0) {
+				fprintf(fp, "G0 E%f\n", E += 1);
+			}  
+			fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", shell1[i][j][1].x + L, shell1[i][j][1].y + L,z, E += distance(shell1[i][j][0], shell1[i][j][1]) * t);
+			for (int k = 2; k < shell1[i][j].size(); k++)
+
+			{
+				fprintf(fp, "G1 X%.3f Y%.3f Z%f E%.5f\n", shell1[i][j][k].x + L, shell1[i][j][k].y + L,z, E += distance(shell1[i][j][k - 1], shell1[i][j][k]) * t);
+
+			}
+			for (int k = 0; k < shell[i][j].size(); k++)
+			{
+				fprintf(fp, "G0 F2000 X%.3f Y%.3f Z%.1f\n", shell[i][j][k][0].x + L, shell[i][j][k][0].y + L, z);
+
+				fprintf(fp, "G1 F2400 X%.3f Y%.3f Z%f E%.5f\n", shell[i][j][k][1].x + L, shell[i][j][k][1].y + L,z, E += distance(shell[i][j][k][0], shell[i][j][k][1]) * t);
+
+				for (int m = 2; m < shell[i][j][k].size(); m++)
+
+				{
+					fprintf(fp, "G1 X%.3f Y%.3f Z%f E%.5f\n", shell[i][j][k][m].x + L, shell[i][j][k][m].y + L,z, E += distance(shell[i][j][k][m - 1], shell[i][j][k][m]) * t);
+
 				}
 			}
 		}
-		fprintf(fp, "G0 F3000 Z%f E%f\n", P[i][P[i].size() - 1][o].z + MAX, E += -1);
+		
+		fprintf(fp, ";TYPE:FILL\n");
+		for (int j = 0; j < paths[i].size(); j++) {
+				fprintf(fp, "G0 X%f Y%f Z%f\n", paths[i][j][0].x + L, paths[i][j][0].y + L, paths[i][j][0].z);
+			for (int m = 1; m < paths[i][j].size(); m++) {
+				
+					fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", paths[i][j][m].x + L, paths[i][j][m].y + L, paths[i][j][m].z, E += distance(paths[i][j][m - 1], paths[i][j][m]) * paths[i][j][m].t);
+					
+			}
+		}
+		fprintf(fp, "G0 F3000 Z%f E%f\n", paths[i][paths[i].size() - 1][paths[i][paths[i].size() - 1].size() - 1].z + MAX, E += -1);
 
 
 	}
@@ -723,7 +966,8 @@ void  main(int argc, char** argv) {
 
 	//Case1();
 	Case2();
-
+	Paths_Optimization();
+	Contour();
 	GcodePrint();
 	end = clock();//结束时间
 	cout << "time = " << double(end - start) / CLOCKS_PER_SEC << "s" << endl;  //输出时间（单位：ｓ）
