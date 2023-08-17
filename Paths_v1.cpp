@@ -17,11 +17,14 @@ using namespace ClipperLib;
 #define MAX 0.6
 #define MIN 0.2
 #define H 0.4  //默认的路径厚度（适用于Case2）
-#define With_path 0.8
+#define With_path 0.8*2
 #define With_material 1.75
 #define pi 3.14
 #define N 1	//首层与末层的层数
 #define NP 4	//隔点上升
+
+#define V_size 2 //用于支撑算法的体素大小
+#define With_support 0.4 //支撑的路径宽度
 
 using namespace std;
 typedef unsigned char boolean;
@@ -36,6 +39,9 @@ vector<Point> buffer1;
 vector<vector<Point>>buffer2;
 vector<vector<vector<Point>>>paths;
 vector<vector<vector<Point>>>P;
+
+vector<vector<vector<Point>>>P_v;//支撑算法的体素点
+vector<vector<vector<Point>>>Path_support;//支撑算法的路径
 
 vector<vector<Point>>model; //slice  整个模型的，分层的轮廓线坐标，一维层数，二维此层的轮廓线点坐标
 //vector<vector<Point>>model2; //slice  整个模型的，分层的轮廓线坐标，一维层数，二维此层的轮廓线点坐标
@@ -57,7 +63,7 @@ MyMesh mesh;
 double Bmax_x, Bmax_y, Bmax_z, Bmin_x, Bmin_y, Bmin_z, px, py, pz;//用于生成包围盒
 int X, Y, Z;//包围盒内离散点的数量
 
-const string file_1 = "tooth.obj";
+const string file_1 = "Fang.STL";
 
 // 读取文件的函数
 void readfile(string file) {//文件读取到了mesh当中
@@ -413,26 +419,43 @@ void Case2_paths() {
 	s.x = Bmin_x; s.y = Bmin_y; s.z = 0; s.t = 0;
 	Z = (Bmax_z - Bmin_z) / (MAX / 2 + MIN / 2) - 1;
 	for (int i = 0; i < Z; i++) {
-		if (i == 0) {//第一层
-			for (int j = 0; j < X; j++) {
-				s.x += With_path;//假如为奇数层
-				for (int m = 0; m < Y; m++) {
-					s.y += With_path;
-					if (i == 0)
+		if (i < N) {//首层
+			if ((i + 1) % 2 != 0) {
+				for (int j = 0; j < X; j++) {
+					s.x += With_path;//假如为奇数层
+					for (int m = 0; m < Y; m++) {
+						s.y += With_path;
+						
 						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = Bmin_z + MIN : s.z = Bmin_z + MAX;
-					else
-						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][j][m].z + MIN : s.z = P[i - 1][j][m].z + MAX;
-					buffer1.push_back(s);
+						buffer1.push_back(s);
+					}
+					buffer2.push_back(buffer1);
+					buffer1.clear();
+					s.y = Bmin_y;
 				}
-				buffer2.push_back(buffer1);
-				buffer1.clear();
+				P.push_back(buffer2);
+				buffer2.clear();
+				s.x = Bmin_x;
+			}
+			else {
+				for (int j = 0; j < Y; j++) {
+					s.y += With_path;//假如为偶数层
+					for (int m = 0; m < X; m++) {
+						s.x += With_path;
+					
+						(1 + j / NP + 1 + m / NP + 1) % 2 != 0 ? s.z = P[i - 1][m][j].z + MIN : s.z = P[i - 1][m][j].z + MAX;
+						buffer1.push_back(s);
+					}
+					buffer2.push_back(buffer1);
+					buffer1.clear();
+					s.x = Bmin_x;
+				}
+				P.push_back(buffer2);
+				buffer2.clear();
 				s.y = Bmin_y;
 			}
-			P.push_back(buffer2);
-			buffer2.clear();
-			s.x = Bmin_x;
 		}
-		else if (i == Z - 1) {//最后一层//假如为奇数层
+		else if (i >= Z - N) {//末层//假如为奇数层
 			if ((i + 1) % 2 != 0) {
 				for (int j = 0; j < X; j++) {
 					s.x += With_path;//假如为奇数层
@@ -653,7 +676,7 @@ void Contour() {
 			co.Clear();
 			co.AddPath(model2[i][j], jtRound, etClosedPolygon);   //设置准备偏移的路径
 			int times = 1;	//偏移次数，即外壳打印的层数
-			int sh = 80;     //偏移厚度
+			int sh = With_path * 100;     //偏移厚度
 
 			for (int a = 0; a < times; a++)					 //进行偏移
 			{
@@ -786,14 +809,19 @@ void  Case2() {
 		for (int j = 0; j < P[i].size(); j++) {
 			for (int m = 1; m < P[i][j].size(); m++) {
 				//首层
-				if (i == 0) {
-					P[i][j][m].t = 2 * (With_path) * (P[i][j][m].z + P[i][j][m - 1].z) / (pow(With_material, 2) * pi);
+				if (i < N) {
+					if (i == 0) {
+						P[i][j][m].t = 2 * (With_path) * (P[i][j][m].z + P[i][j][m - 1].z) / (pow(With_material, 2) * pi);
+					}
+					else {
+						P[i][j][m].t = 2 * (With_path) * (P[i][j][m].z/2 + P[i][j][m - 1].z/2) / (pow(With_material, 2) * pi);
+					}
 				}
 				//末层(奇数)
-				else if (i == Z - 1 && (i + 1) % 2 != 0) {
+				else if (i >= Z - N && (i + 1) % 2 != 0) {
 					P[i][j][m].t = 2 * (With_path) * (MAX + MIN - P[0][j][m - 1].z + MAX + MIN - P[0][j][m].z) / (pow(With_material, 2) * pi);
 				} // 末层(偶数)
-				else if (i == Z - 1 && (i + 1) % 2 == 0) {
+				else if (i >= Z - N && (i + 1) % 2 == 0) {
 					P[i][j][m].t = 2 * (With_path) * (MAX + MIN - (P[1][j][m - 1].z - H) + MAX + MIN - (P[1][j][m].z - H)) / (pow(With_material, 2) * pi);
 
 				}//中间层
@@ -855,7 +883,7 @@ void Paths_Optimization() {
 
 }
 
-void GcodePrint() {
+void ContourGcodePrint() {
 
 
 	FILE* fp;
@@ -895,11 +923,13 @@ void GcodePrint() {
 		fprintf(fp, ";TYPE:OUTLINE\n");
 		fprintf(fp, "M73 P%.f\n", float((100 * i) / paths.size()));
 		z += (MIN + MAX) / 2;
+		fprintf(fp, "G0 X%f Y%f Z%f\n", shell1[i][0][0].x + L, shell1[i][0][0].y + L, z);
+		if (i > 0) {
+			fprintf(fp, "G0 E%f\n", E += 1);
+		}
 		for (int j = 0; j < shell1[i].size(); j++) {
 			fprintf(fp, "G0 X%f Y%f Z%f\n", shell1[i][j][0].x + L, shell1[i][j][0].y + L, z);
-			if (i > 0) {
-				fprintf(fp, "G0 E%f\n", E += 1);
-			}  
+			 
 			fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", shell1[i][j][1].x + L, shell1[i][j][1].y + L,z, E += distance(shell1[i][j][0], shell1[i][j][1]) * t);
 			for (int k = 2; k < shell1[i][j].size(); k++)
 
@@ -956,6 +986,228 @@ void GcodePrint() {
 	fclose(fp);
 }
 
+void Support() {
+
+	Point p;
+	//创建包围盒体素块
+	for (double i = Bmin_z; i < Bmax_z; i += H) {
+		for (double j = Bmin_y + V_size / 2; j < Bmax_y + V_size / 2; j += V_size) {
+			for (double m = Bmin_x + V_size/2; m < Bmax_x + V_size/2; m += V_size) {
+				p.x = m; p.y = j; p.z = i;
+				p.t = 2 * With_support * V_size / (pow(With_material, 2) * pi);
+				p.b = true;
+				buffer1.push_back(p);
+			}
+			buffer2.push_back(buffer1);
+			buffer1.clear();
+		}
+		P_v.push_back(buffer2);
+		buffer2.clear();
+	}
+
+	//判断轮廓外的点
+	Path  way;
+	Paths layer;//每层路径集合
+	IntPoint p1;
+	for (int i = 0; i < P_v.size(); i++) {
+		printf("求交算法：%.2lf%%\r", i * 100.0 / P_v.size());
+		for (int j = 0; j < P_v[i].size(); j++) {
+			for (int m = 0; m < P_v[i][j].size(); m++) {
+				MyMesh::Normal vf(0, 0, 1);//截面法线
+				MyMesh::Point pt;//截面上一点
+				pt.data()[0] = 0; pt.data()[1] = 0; pt.data()[2] = P_v[i][j][m].z;
+				IntersectPlane(pt, vf);//生成一层轮廓线，存入coord
+
+				for (int k = 0; k < coord.size(); k++)
+				{
+					if (coord[k].x != -10000)
+					{
+						p1.X = coord[k].x * 100;
+						p1.Y = coord[k].y * 100;
+						way.push_back(p1);
+					}
+					else
+					{
+						layer.push_back(way);
+						way.clear();
+					}
+				}
+				layer.push_back(way);
+				way.clear();
+				coord.clear();
+
+				for (int k1 = 0; k1 < layer.size(); k1++)
+				{
+					for (int k = 0; k < layer[k1].size(); k++)
+					{
+						p.x = double(layer[k1][k].X) / 100;
+						p.y = double(layer[k1][k].Y) / 100;
+
+						shellpath.push_back(p);
+					}
+					shellpaths.push_back(shellpath);
+					shellpath.clear();
+				}
+				layer.clear();
+
+				for (int k = 0; k < shellpaths.size(); k++) {
+					if (InOrOutPolygon(P_v[i][j][m], shellpaths[k])) {
+						P_v[i][j][m].b = false;
+					}
+				}
+				shellpaths.clear();
+
+			}
+		}
+
+	}
+	//生成支撑路径
+	Point s;
+	for (int i = 0; i < P_v.size(); i++) {
+		for (int j = 0; j < P_v[i].size(); j++) {
+			for (int m = 0; m < P_v[i][j].size(); m++) {
+				if (P_v[i][j][m].b == true) {
+					buffer1.push_back(P_v[i][j][m]);
+				}
+				else if (P_v[i][j][m].b == false && buffer1.size() != 0) {
+					buffer2.push_back(buffer1);
+					buffer1.clear();
+				}
+			}
+			if (buffer1.size() != 0) {
+				buffer2.push_back(buffer1);
+				buffer1.clear();
+			}
+		}
+		Path_support.push_back(buffer2);
+		buffer2.clear();
+	}
+
+	double arcs, s_begin, s_end;
+	for (int i = 0; i < Path_support.size(); i++) {
+		for (int j = 0; j < Path_support[i].size() - 1; j++) {
+			arcs = distance(Path_support[i][j][Path_support[i][j].size() - 1], Path_support[i][j + 1][0]);
+			for (int m = j + 1; m < Path_support[i].size(); m++) {
+				s_begin = distance(Path_support[i][j][Path_support[i][j].size() - 1], Path_support[i][m][0]);
+				s_end = distance(Path_support[i][j][Path_support[i][j].size() - 1], Path_support[i][m][Path_support[i][m].size() - 1]);
+				if (s_begin < arcs && s_begin < s_end) {
+					arcs = s_begin;
+					buffer1 = Path_support[i][m];
+					Path_support[i][m] = Path_support[i][j + 1];
+					Path_support[i][j + 1] = buffer1;
+					buffer1.clear();
+				}
+				else if (s_end < arcs && s_end < s_begin) {
+					arcs = s_end;
+					reverse(Path_support[i][m].begin(), Path_support[i][m].end());
+					buffer1 = Path_support[i][m];
+					Path_support[i][m] = Path_support[i][j + 1];
+					Path_support[i][j + 1] = buffer1;
+					buffer1.clear();
+				}
+			}
+		}
+	}
+
+
+}
+
+void GcodePrint() {
+	FILE* fp;
+	errno_t err;     //判断此文件流是否存在 存在返回1
+	err = fopen_s(&fp, "ls2.gcode", "a"); //若return 1 , 则将指向这个文件的文件流给
+	double t = (4 * ((MIN + MAX) / 2) * With_path) / (pow(With_material, 2) * pi);
+	double E = 0;
+	double r;//回抽
+	int L = 50;//偏移量
+	fprintf(fp, ";FLAVOR:Marlin\n");
+	fprintf(fp, ";Generated with Cura_SteamEngine 4.10.0\n");
+	fprintf(fp, "M140 S50\n");
+	fprintf(fp, "M105\n");
+	fprintf(fp, "M190 S50\n");
+	fprintf(fp, "M104 S210\n");
+	fprintf(fp, "M105\n");
+	fprintf(fp, "M109 S210\n");
+	fprintf(fp, "M82 ;absolute extrusion mode\n");
+	fprintf(fp, "M201 X500.00 Y500.00 Z100.00 E5000.00 ;Setup machine max acceleration\n");
+	fprintf(fp, "M203 X500.00 Y500.00 Z10.00 E50.00 ;Setup machine max feedrate\n");
+	fprintf(fp, "M204 P500.00 R1000.00 T500.00 ;Setup Print/Retract/Travel acceleration\n");
+	fprintf(fp, "M205 X8.00 Y8.00 Z0.40 E5.00 ;Setup Jerk\n");
+	fprintf(fp, "M220 S100 ;Reset Feedrate\n");
+	fprintf(fp, "M221 S100 ;Reset Flowrate\n");
+
+	fprintf(fp, "G28 ;Home\n");
+
+	fprintf(fp, "G92 E0\n");
+	fprintf(fp, "G92 E0\n");
+	fprintf(fp, "G1 F2700 E-5\n");
+	fprintf(fp, "M107\n");
+
+	double z = Bmin_z;
+
+	for (int i = 0; i < paths.size(); i++) {
+		fprintf(fp, ";LAYER:%d\n", i);
+	
+		fprintf(fp, "M73 P%.f\n", float((100 * i) / paths.size()));
+		fprintf(fp, "G0 X%f Y%f Z%f\n", paths[i][0][0].x + L, paths[i][0][0].y + L, paths[i][0][0].z);
+		fprintf(fp, "G0 E%f\n", E += 1);
+
+		fprintf(fp, ";TYPE:FILL\n");
+		for (int j = 0; j < paths[i].size(); j++) {
+			
+			fprintf(fp, "G0 X%f Y%f Z%f\n", paths[i][j][0].x + L, paths[i][j][0].y + L, paths[i][j][0].z);
+			if (i > 0) {
+				
+			}
+			for (int m = 1; m < paths[i][j].size(); m++) {
+
+				fprintf(fp, "G1 F1200 X%f Y%f Z%f E%f\n", paths[i][j][m].x + L, paths[i][j][m].y + L, paths[i][j][m].z, E += distance(paths[i][j][m - 1], paths[i][j][m]) * paths[i][j][m].t);
+
+			}
+
+		}
+
+		//support
+		/*if (i > 0) {
+			for (int j = 0; j < Path_support[i].size(); j++) {
+
+				fprintf(fp, "G0 X%f Y%f Z%f\n", Path_support[i][j][0].x + L, Path_support[i][j][0].y + L, Path_support[i][j][0].z);
+				if (i > 0) {
+
+				}
+				for (int m = 1; m < Path_support[i][j].size(); m++) {
+
+					fprintf(fp, "G1 F2400 X%f Y%f Z%f E%f\n", Path_support[i][j][m].x + L, Path_support[i][j][m].y + L, Path_support[i][j][m].z, E += distance(Path_support[i][j][m - 1], Path_support[i][j][m]) * Path_support[i][j][m].t);
+
+				}
+
+			}
+		}*/
+
+		fprintf(fp, "G0 F3000 Z%f E%f\n", paths[i][paths[i].size() - 1][paths[i][paths[i].size() - 1].size() - 1].z + MAX, E -= 1);
+
+
+	}
+	fprintf(fp, "M140 S0\n");
+	fprintf(fp, "M107\n");
+	fprintf(fp, "G91\n");
+	fprintf(fp, "G1 E-2 F2700\n");
+	fprintf(fp, "G1 E-2 Z0.2 F2400 ;Retract and raise Z\n");
+	fprintf(fp, "G1 X5 Y5 F3000 ;Wipe out\n");
+	fprintf(fp, "G1 Z10 ;Raise Z more\n");
+	fprintf(fp, "G90 ;Absolute positioning\n");
+
+	fprintf(fp, "G1 X0 Y300 ;Present print\n");
+	fprintf(fp, "M106 S0 ;Turn-off fan\n");
+	fprintf(fp, "M104 S0 ;Turn-off hotend\n");
+	fprintf(fp, "M140 S0 ;Turn-off bed\n");
+
+	fprintf(fp, "M84 X Y E ;Disable all steppers but Z\n");
+
+	fprintf(fp, "M82 ;absolute extrusion mode\n");
+	fprintf(fp, "M104 S0\n");
+	fclose(fp);
+}
 
 void  main(int argc, char** argv) {
 	clock_t start, end;
@@ -964,11 +1216,13 @@ void  main(int argc, char** argv) {
 	readfile(file_1);
 	BoundingBox();//生成包围盒
 
-	//Case1();
-	Case2();
+	Case1();
+	//Case2();
 	Paths_Optimization();
 	Contour();
+	//Support();
 	GcodePrint();
+	//ContourGcodePrint();
 	end = clock();//结束时间
 	cout << "time = " << double(end - start) / CLOCKS_PER_SEC << "s" << endl;  //输出时间（单位：ｓ）
 }
